@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>2026 新年快乐 - 心动版</title>
+    <style>
+        body {
+            margin: 0; padding: 0; 
+            background: #050508 url('bp.png') no-repeat center center fixed;
+            background-size: cover;
+            color: white; font-family: 'STKaiti', 'Georgia', serif; 
+            overflow: hidden;
+            display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100vh;
+        }
+        body::before {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6); z-index: 0;
+        }
+        #fireworksCanvas, #textCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        #fireworksCanvas { z-index: 2; }
+        #textCanvas { z-index: 15; }
+
+        #photoDisplay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%);
+            max-width: 85vw; max-height: 50vh; 
+            opacity: 0; transition: opacity 1s ease; z-index: 20;
+            border-radius: 10px; box-shadow: 0 0 30px rgba(255,215,0,0.5);
+            display: none;
+        }
+
+        #grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 45px;
+            width: 85vw; max-width: 900px; margin-bottom: 80px; z-index: 30; perspective: 1000px;
+        }
+        .card { position: relative; aspect-ratio: 1 / 1; cursor: pointer; }
+        .card-text {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 15, 25, 0.85); border: 2.5px solid #FFD700; color: #FFD700;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 8vw; font-weight: bold; border-radius: 15px; z-index: 2;
+        }
+        .card-image {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            border-radius: 15px; border: 1px solid rgba(255,255,255,0.4);
+            object-fit: cover; transition: all 0.8s ease; z-index: 5;
+        }
+        .card.clicked .card-image { opacity: 0; transform: scale(0.1); pointer-events: none; }
+        #music-status { position: fixed; top: 20px; right: 20px; z-index: 100; font-size: 24px; cursor: pointer; display: none; }
+    </style>
+</head>
+<body>
+
+    <audio id="bgMusic" loop preload="auto"><source src="music.mp3" type="audio/mpeg"></audio>
+    <div id="music-status" onclick="toggleMusic()">🎵</div>
+
+    <canvas id="fireworksCanvas"></canvas>
+    <canvas id="textCanvas"></canvas>
+    
+    <img id="photoDisplay" src="zy.png" alt="ZY">
+
+    <div id="grid">
+        <div class="card" onclick="handleClick(this, 'xin.mp3')"><div class="card-text">新</div><img src="1.png" class="card-image"></div>
+        <div class="card" onclick="handleClick(this, 'nian.mp3')"><div class="card-text">年</div><img src="2.png" class="card-image"></div>
+        <div class="card" onclick="handleClick(this, 'kuai.mp3')"><div class="card-text">快</div><img src="3.png" class="card-image"></div>
+        <div class="card" onclick="handleClick(this, 'le.mp3')"><div class="card-text">乐</div><img src="4.png" class="card-image"></div>
+    </div>
+
+    <script>
+        let clickCount = 0;
+        let fireworksActive = false;
+        const textCanvas = document.getElementById('textCanvas');
+        const tCtx = textCanvas.getContext('2d', { willReadFrequently: true });
+        const fwCanvas = document.getElementById('fireworksCanvas');
+        const fwCtx = fwCanvas.getContext('2d');
+        const photoDisplay = document.getElementById('photoDisplay');
+        let textParticles = [];
+
+        function resize() {
+            fwCanvas.width = textCanvas.width = window.innerWidth;
+            fwCanvas.height = textCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // 文字粒子类
+        class TextParticle {
+            constructor(x, y, color) {
+                this.x = Math.random() * textCanvas.width;
+                this.y = Math.random() * textCanvas.height;
+                this.targetX = x; this.targetY = y;
+                this.color = color;
+                this.vx = 0; this.vy = 0;
+                this.ease = 0.08; this.friction = 0.85;
+                this.size = 2.8; this.opacity = 0;
+            }
+            update() {
+                this.vx += (this.targetX - this.x) * this.ease;
+                this.vy += (this.targetY - this.y) * this.ease;
+                this.vx *= this.friction; this.vy *= this.friction;
+                this.x += this.vx; this.y += this.vy;
+                if (this.opacity < 1) this.opacity += 0.05;
+            }
+            draw() {
+                tCtx.globalAlpha = this.opacity;
+                tCtx.fillStyle = this.color;
+                tCtx.fillRect(this.x, this.y, this.size, this.size);
+            }
+        }
+
+        async function createTextParticles(text) {
+            textParticles = [];
+            tCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+            tCtx.fillStyle = "white";
+            tCtx.textAlign = "center";
+            const fontSize = textCanvas.width < 600 ? '16vw' : '130px';
+            tCtx.font = `bold ${fontSize} STKaiti, serif`;
+            tCtx.fillText(text, textCanvas.width/2, textCanvas.height/2 - 50);
+            
+            const data = tCtx.getImageData(0, 0, textCanvas.width, textCanvas.height).data;
+            tCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+            const step = textCanvas.width < 600 ? 4 : 5; 
+            for (let y=0; y<textCanvas.height; y+=step) {
+                for (let x=0; x<textCanvas.width; x+=step) {
+                    const i = (y*textCanvas.width + x)*4;
+                    if (data[i+3] > 120) {
+                        textParticles.push(new TextParticle(x, y, `rgba(${data[i]},${data[i+1]},${data[i+2]},1)`));
+                    }
+                }
+            }
+        }
+
+        async function startTextSequence() {
+            const list = ["Happy New Year", "PHOTO_ZY", "2026", "要顺顺利利", "快快乐乐", "记得按时吃饭","还有","成为更好的张老师","go go go"];
+            for (let item of list) {
+                if (item === "PHOTO_ZY") {
+                    photoDisplay.style.display = "block";
+                    setTimeout(() => photoDisplay.style.opacity = "1", 50);
+                    await new Promise(r => setTimeout(r, 2500));
+                    photoDisplay.style.opacity = "0";
+                    setTimeout(() => photoDisplay.style.display = "none", 1000);
+                } else {
+                    await createTextParticles(item);
+                    await new Promise(r => setTimeout(r, 2500));
+                    textParticles.forEach(p => { p.targetY = -200; p.opacity = 0; });
+                    await new Promise(r => setTimeout(r, 800));
+                    textParticles = [];
+                }
+            }
+        }
+
+        // 烟火粒子类
+        let fireworks = [], particles = [];
+        class Particle {
+            constructor(x, y, hue, vx, vy) {
+                this.x = x; this.y = y;
+                this.hue = hue + (Math.random() * 40 - 20);
+                this.vx = vx; this.vy = vy;
+                this.alpha = 1;
+                this.decay = Math.random() * 0.015 + 0.01; 
+                this.gravity = 0.12; this.friction = 0.94;
+                this.history = [{x: x, y: y}];
+            }
+            update() {
+                this.vx *= this.friction; this.vy *= this.friction;
+                this.vy += this.gravity; this.x += this.vx; this.y += this.vy;
+                this.alpha -= this.decay;
+                this.history.push({x: this.x, y: this.y});
+                if (this.history.length > 4) this.history.shift();
+            }
+            draw() {
+                fwCtx.save();
+                fwCtx.globalAlpha = this.alpha;
+                fwCtx.strokeStyle = `hsla(${this.hue}, 100%, 70%, ${this.alpha})`;
+                fwCtx.lineWidth = 2;
+                fwCtx.beginPath();
+                if(this.history.length > 1) {
+                    fwCtx.moveTo(this.history[0].x, this.history[0].y);
+                    for(let i=1; i<this.history.length; i++) fwCtx.lineTo(this.history[i].x, this.history[i].y);
+                }
+                fwCtx.stroke();
+                fwCtx.fillStyle = `hsl(${this.hue}, 100%, 80%)`;
+                fwCtx.beginPath(); fwCtx.arc(this.x, this.y, 2, 0, Math.PI * 2); fwCtx.fill();
+                fwCtx.restore();
+            }
+        }
+
+        class Firework {
+            constructor() {
+                this.x = Math.random() * fwCanvas.width;
+                this.y = fwCanvas.height;
+                this.targetY = Math.random() * (fwCanvas.height * 0.5) + 50;
+                this.hue = Math.random() * 360;
+                this.speed = Math.random() * 4 + 8;
+                this.exploded = false;
+                this.type = Math.random() > 0.4 ? 'circle' : 'heart'; // 40% 概率出爱心
+            }
+            update() {
+                this.y -= this.speed;
+                if (this.y <= this.targetY) { this.exploded = true; this.explode(); }
+            }
+            explode() {
+                const count = this.type === 'heart' ? 400 : 250;
+                for (let i = 0; i < count; i++) {
+                    let vx, vy;
+                    if (this.type === 'heart') {
+                        // 心形方程
+                        const t = (i / count) * Math.PI * 2;
+                        const r = Math.random() * 0.5 + 0.8; // 让心形有厚度
+                        vx = 16 * Math.pow(Math.sin(t), 3);
+                        vy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+                        const force = (Math.random() * 0.4 + 0.6) * 0.8; 
+                        vx *= force; vy *= force;
+                    } else {
+                        // 普通圆形
+                        const angle = Math.random() * Math.PI * 2;
+                        const force = Math.random() * 12 + 3;
+                        vx = Math.cos(angle) * force;
+                        vy = Math.sin(angle) * force;
+                    }
+                    particles.push(new Particle(this.x, this.y, this.hue, vx, vy));
+                }
+            }
+            draw() {
+                fwCtx.fillStyle = `hsl(${this.hue}, 100%, 70%)`;
+                fwCtx.beginPath(); fwCtx.arc(this.x, this.y, 3, 0, Math.PI * 2); fwCtx.fill();
+            }
+        }
+
+        function mainLoop() {
+            tCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+            textParticles.forEach(p => { p.update(); p.draw(); });
+            
+            if (fireworksActive) {
+                fwCtx.fillStyle = 'rgba(5, 5, 8, 0.1)'; // 保持深色背景感
+                fwCtx.fillRect(0, 0, fwCanvas.width, fwCanvas.height);
+                
+                if (Math.random() < 0.16) fireworks.push(new Firework()); // 增加频率
+                
+                fireworks = fireworks.filter(f => {
+                    if (f.exploded) return false;
+                    f.update(); f.draw(); return true;
+                });
+                particles = particles.filter(p => {
+                    if (p.alpha <= 0) return false;
+                    p.update(); p.draw(); return true;
+                });
+            }
+            requestAnimationFrame(mainLoop);
+        }
+        mainLoop();
+
+        function toggleMusic() { const a = document.getElementById('bgMusic'); a.paused ? a.play() : a.pause(); }
+        
+        function handleClick(el, src) {
+            if (clickCount === 0) { 
+                document.getElementById('bgMusic').play().catch(()=>{}); 
+                document.getElementById('music-status').style.display = "block"; 
+            }
+            if (!el.classList.contains('clicked')) {
+                el.classList.add('clicked');
+                new Audio(src).play().catch(()=>{});
+                clickCount++;
+                if (clickCount === 4) {
+                    fireworksActive = true;
+                    setTimeout(startTextSequence, 1000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
